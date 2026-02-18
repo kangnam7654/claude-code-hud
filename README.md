@@ -1,63 +1,74 @@
 # Claude Code HUD
 
-Claude Code의 status line에 사용량 정보를 표시하는 커스텀 HUD.
+A custom status line for Claude Code that displays real-time usage metrics at a glance.
 
-## 표시 정보
+[한국어](docs/README.ko.md) | [日本語](docs/README.ja.md) | [中文](docs/README.zh.md)
+
+## What It Looks Like
 
 ```
 Opus 4.6 | 13m 28s (api:8m 41s) | $2.07 | d:$2.07 m:$2.07 | in:88.9K out:26.7K
-ctx  [#####---------------] 29%
-5h   [--------------------]  4%  reset 3h 30m
-week [####----------------] 22%  reset 4d 19h
+ctx  [█████░░░░░░░░░░░░░░░] 29%
+5h   [░░░░░░░░░░░░░░░░░░░░]  4%  reset 3h 30m
+week [████░░░░░░░░░░░░░░░░] 22%  reset 4d 19h
 ```
 
-| 줄 | 내용 |
-|----|------|
-| 1 | 모델명, 세션 시간(API 시간), 세션 비용, 일간/월간 누적 비용, 입출력 토큰 |
-| 2 | 컨텍스트 윈도우 사용률 바 |
-| 3 | 5시간 플랜 한도 사용률 + 리셋 타이머 |
-| 4 | 주간 플랜 한도 사용률 + 리셋 타이머 |
+| Line | Content |
+|------|---------|
+| 1 | Model, session time (API time), session cost, daily/monthly cost, I/O tokens |
+| 2 | Context window usage bar |
+| 3 | 5-hour plan limit usage + reset timer |
+| 4 | Weekly plan limit usage + reset timer |
 
-바 색상: 초록(<50%) → 노랑(50-79%) → 빨강(80%+)
+Bar colors: green (<50%) → yellow (50-79%) → red (80%+)
 
-## 파일 구조
-
-```
-install.sh             # 설치/제거 스크립트
-statusline.sh          # HUD 메인 스크립트 (status line에서 실행)
-fetch-plan-usage.sh    # Anthropic OAuth API로 플랜 사용량 조회 + 캐시
-log-session.sh         # SessionEnd 훅 - 세션 종료 시 비용을 JSONL로 기록
-```
-
-## 설치
+## Install
 
 ```bash
-git clone <repo-url> && cd hud
+git clone https://github.com/kangnam7654/claude-code-hud.git
+cd claude-code-hud
 ./install.sh
 ```
 
-자동으로 심볼릭 링크 생성 + `~/.claude/settings.json` 설정을 처리한다.
+This automatically creates symlinks and configures `~/.claude/settings.json`. Restart Claude Code after install.
 
-제거:
+To uninstall:
 
 ```bash
 ./install.sh --uninstall
 ```
 
-## 동작 방식
+## How It Works
 
-### 플랜 사용량 (`fetch-plan-usage.sh`)
+### Status Line (`statusline.sh`)
 
-- `~/.claude/.credentials.json`의 OAuth 토큰으로 `api.anthropic.com/api/oauth/usage` 호출
-- 30초 캐시 (`/tmp/claude-plan-usage.json`)로 status line 속도에 영향 없음
-- 캐시가 stale하면 백그라운드에서 자동 갱신
+Reads session JSON from Claude Code via stdin and renders a multi-line dashboard with:
+- Session metrics (cost, time, tokens)
+- Context window usage bar
+- Plan usage bars with reset timers (from cached API data)
+- Cumulative daily/monthly costs (from session log)
 
-### 일간/월간 비용 (`log-session.sh`)
+### Plan Usage (`fetch-plan-usage.sh`)
 
-- SessionEnd 훅으로 세션 종료 시 비용/토큰을 `~/.claude/usage-log.jsonl`에 기록
-- statusline에서 현재 세션 비용 + 과거 세션 비용을 합산하여 표시
+- Calls `api.anthropic.com/api/oauth/usage` using OAuth token from `~/.claude/.credentials.json`
+- 30-second cache (`/tmp/claude-plan-usage.json`) so the status line stays fast
+- Auto-refreshes in background when cache is stale
 
-## 요구사항
+### Session Logging (`log-session.sh`)
 
-- Claude Code (Max 플랜)
+- SessionEnd hook that logs cost/token metrics to `~/.claude/usage-log.jsonl`
+- Status line sums current session + past sessions for daily/monthly totals
+
+## Files
+
+```
+install.sh             # Install/uninstall script
+statusline.sh          # Main HUD script (runs in status line)
+fetch-plan-usage.sh    # Anthropic OAuth API plan usage fetcher + cache
+log-session.sh         # SessionEnd hook - logs session metrics to JSONL
+```
+
+## Requirements
+
+- Claude Code (Max plan)
 - `jq`, `curl`, `bc`
