@@ -46,8 +46,8 @@ make_bar() {
     local filled=$((pct * width / 100))
     [ "$filled" -gt "$width" ] && filled=$width
     local empty=$((width - filled))
-    printf "%${filled}s" | tr ' ' '#'
-    printf "%${empty}s" | tr ' ' '-'
+    printf "%${filled}s" | sed 's/ /█/g'
+    printf "%${empty}s" | sed 's/ /░/g'
 }
 
 format_tokens() {

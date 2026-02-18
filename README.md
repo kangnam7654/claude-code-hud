@@ -23,6 +23,7 @@ week [####----------------] 22%  reset 4d 19h
 ## 파일 구조
 
 ```
+install.sh             # 설치/제거 스크립트
 statusline.sh          # HUD 메인 스크립트 (status line에서 실행)
 fetch-plan-usage.sh    # Anthropic OAuth API로 플랜 사용량 조회 + 캐시
 log-session.sh         # SessionEnd 훅 - 세션 종료 시 비용을 JSONL로 기록
@@ -30,35 +31,17 @@ log-session.sh         # SessionEnd 훅 - 세션 종료 시 비용을 JSONL로 �
 
 ## 설치
 
-1. 심볼릭 링크 생성:
-
 ```bash
-ln -sf $(pwd)/statusline.sh ~/.claude/statusline.sh
-ln -sf $(pwd)/fetch-plan-usage.sh ~/.claude/fetch-plan-usage.sh
-ln -sf $(pwd)/log-session.sh ~/.claude/log-session.sh
+git clone <repo-url> && cd hud
+./install.sh
 ```
 
-2. `~/.claude/settings.json`에 추가:
+자동으로 심볼릭 링크 생성 + `~/.claude/settings.json` 설정을 처리한다.
 
-```json
-{
-  "statusLine": {
-    "type": "command",
-    "command": "~/.claude/statusline.sh"
-  },
-  "hooks": {
-    "SessionEnd": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude/log-session.sh"
-          }
-        ]
-      }
-    ]
-  }
-}
+제거:
+
+```bash
+./install.sh --uninstall
 ```
 
 ## 동작 방식
