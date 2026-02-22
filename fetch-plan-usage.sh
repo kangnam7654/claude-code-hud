@@ -9,12 +9,20 @@ CACHE_FILE="/tmp/claude-plan-usage.json"
 CRED_FILE="$HOME/.claude/.credentials.json"
 
 # Read OAuth access token
-if [ ! -f "$CRED_FILE" ]; then
+# Try credentials file first (Linux), then macOS Keychain
+CRED_JSON=""
+if [ -f "$CRED_FILE" ]; then
+    CRED_JSON=$(cat "$CRED_FILE")
+elif command -v security &>/dev/null; then
+    CRED_JSON=$(security find-generic-password -s "Claude Code-credentials" -a "$USER" -w 2>/dev/null)
+fi
+
+if [ -z "$CRED_JSON" ]; then
     echo '{"error":"no credentials"}' > "$CACHE_FILE"
     exit 1
 fi
 
-ACCESS_TOKEN=$(jq -r '.claudeAiOauth.accessToken // .accessToken // empty' "$CRED_FILE")
+ACCESS_TOKEN=$(echo "$CRED_JSON" | jq -r '.claudeAiOauth.accessToken // .accessToken // empty')
 if [ -z "$ACCESS_TOKEN" ]; then
     echo '{"error":"no token"}' > "$CACHE_FILE"
     exit 1
