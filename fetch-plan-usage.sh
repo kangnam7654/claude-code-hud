@@ -33,7 +33,7 @@ if [ -z "$RESPONSE" ]; then
 fi
 
 # Parse and write cache with timestamp
-echo "$RESPONSE" | jq -c \
+PARSED=$(echo "$RESPONSE" | jq -c \
     --arg ts "$(date +%s)" \
     '{
         timestamp: ($ts | tonumber),
@@ -45,6 +45,14 @@ echo "$RESPONSE" | jq -c \
         sonnet_weekly_resets_at: (.seven_day_sonnet.resets_at // null),
         opus_weekly_pct: ((.seven_day_opus.utilization // 0) | floor),
         opus_weekly_resets_at: (.seven_day_opus.resets_at // null)
-    }' > "$CACHE_FILE" 2>/dev/null
+    }' 2>/dev/null)
+
+# Only write cache if jq succeeded and produced valid JSON
+if [ -n "$PARSED" ] && echo "$PARSED" | jq -e '.timestamp' >/dev/null 2>&1; then
+    echo "$PARSED" > "$CACHE_FILE"
+else
+    echo "{\"error\":\"parse failed\",\"timestamp\":$(date +%s),\"raw\":$(echo "$RESPONSE" | head -c 500 | jq -Rs .)}" > "$CACHE_FILE"
+    exit 1
+fi
 
 exit 0

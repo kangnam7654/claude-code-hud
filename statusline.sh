@@ -79,6 +79,17 @@ format_cost() {
     else printf '$%.4f' "$cost"; fi
 }
 
+# Parse ISO 8601 timestamp to epoch (cross-platform: GNU date + BSD date)
+iso_to_epoch() {
+    local ts=$1
+    # GNU date (Linux)
+    date -d "$ts" +%s 2>/dev/null && return
+    # BSD date (macOS) — strip Z or +HH:MM offset, parse without timezone
+    local clean=$(echo "$ts" | sed 's/Z$//' | sed 's/[+-][0-9][0-9]:[0-9][0-9]$//')
+    date -jf "%Y-%m-%dT%H:%M:%S" "$clean" +%s 2>/dev/null && return
+    return 1
+}
+
 # Format ISO timestamp to "Xh Ym" or "Xd Yh" remaining
 format_remaining() {
     local reset_at=$1
@@ -86,7 +97,7 @@ format_remaining() {
         echo "?"
         return
     fi
-    local reset_epoch=$(date -d "$reset_at" +%s 2>/dev/null)
+    local reset_epoch=$(iso_to_epoch "$reset_at")
     local now_epoch=$(date +%s)
     if [ -z "$reset_epoch" ]; then echo "?"; return; fi
     local diff=$((reset_epoch - now_epoch))
