@@ -4,8 +4,10 @@
 # Line 2: Context bar | Tokens
 # Line 3: Plan usage (5h session + 7d weekly) with reset timers
 
-# Source utility functions
-_hud_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+# Source utility functions (follow symlink to find lib/)
+_hud_script="${BASH_SOURCE[0]}"
+[ -L "$_hud_script" ] && _hud_script="$(readlink "$_hud_script")"
+_hud_dir="$(cd "$(dirname "$_hud_script")" && pwd -P)"
 source "${_hud_dir}/lib/hud-utils.sh"
 
 # Main-guard: only execute when run directly (not sourced)
