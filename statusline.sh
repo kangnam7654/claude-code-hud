@@ -110,15 +110,13 @@ fi
 [[ "$DAILY_TOTAL" =~ ^[0-9]*\.?[0-9]+$ ]] || DAILY_TOTAL=0
 [[ "$MONTHLY_TOTAL" =~ ^[0-9]*\.?[0-9]+$ ]] || MONTHLY_TOTAL=0
 
-# Add current session
-DAILY_WITH=$(echo "$DAILY_TOTAL + $COST" | bc)
-MONTHLY_WITH=$(echo "$MONTHLY_TOTAL + $COST" | bc)
-DAILY_FMT=$(format_cost "$DAILY_WITH")
-MONTHLY_FMT=$(format_cost "$MONTHLY_WITH")
+# Past sessions only (not including current)
+DAILY_FMT=$(format_cost "$DAILY_TOTAL")
+MONTHLY_FMT=$(format_cost "$MONTHLY_TOTAL")
 
 # --- Output ---
 
-# Line 1: Model | Time | Session$ | Daily$ Monthly$ | Tokens
+# Line 1: Model | Time | Session$ | Daily$ Monthly$ (past sessions) | Tokens
 echo -e "${BOLD}${CYAN}${MODEL}${RESET} ${DIM}|${RESET} ${WHITE}${WALL_TIME}${RESET} ${DIM}(api:${API_TIME})${RESET} ${DIM}|${RESET} ${YELLOW}${COST_FMT}${RESET} ${DIM}|${RESET} ${BLUE}d:${DAILY_FMT} m:${MONTHLY_FMT}${RESET} ${DIM}|${RESET} ${MAGENTA}in:${IN_FMT} out:${OUT_FMT}${RESET}"
 
 # Line 2: ctx bar with label
