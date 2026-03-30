@@ -1,0 +1,3 @@
+shell=bash
+# SC2034: Unused variables - color variables are used by sourcing scripts
+disable=SC2034

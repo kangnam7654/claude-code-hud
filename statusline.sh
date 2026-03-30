@@ -4,19 +4,36 @@
 # Line 2: Context bar | Tokens
 # Line 3: Plan usage (5h session + 7d weekly) with reset timers
 
+# Source utility functions
+_hud_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+source "${_hud_dir}/lib/hud-utils.sh"
+
+# Main-guard: only execute when run directly (not sourced)
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+
 input=$(cat)
 
+# Validate stdin: empty or invalid JSON -> fallback
+if [ -z "$input" ] || ! printf '%s\n' "$input" | jq -e . >/dev/null 2>&1; then
+    echo "HUD: no data"
+    exit 0
+fi
+
 # Parse JSON data
-MODEL=$(echo "$input" | jq -r '.model.display_name // "unknown"')
-COST=$(echo "$input" | jq -r '.cost.total_cost_usd // 0')
-DURATION_MS=$(echo "$input" | jq -r '.cost.total_duration_ms // 0')
-API_DURATION_MS=$(echo "$input" | jq -r '.cost.total_api_duration_ms // 0')
-PCT=$(echo "$input" | jq -r '.context_window.used_percentage // 0' | cut -d. -f1)
-INPUT_TOKENS=$(echo "$input" | jq -r '.context_window.total_input_tokens // 0')
-OUTPUT_TOKENS=$(echo "$input" | jq -r '.context_window.total_output_tokens // 0')
+MODEL=$(printf '%s\n' "$input" | jq -r '.model.display_name // "unknown"')
+COST=$(printf '%s\n' "$input" | jq -r '.cost.total_cost_usd // 0')
+DURATION_MS=$(printf '%s\n' "$input" | jq -r '.cost.total_duration_ms // 0')
+API_DURATION_MS=$(printf '%s\n' "$input" | jq -r '.cost.total_api_duration_ms // 0')
+PCT=$(printf '%s\n' "$input" | jq -r '.context_window.used_percentage // 0' | cut -d. -f1)
+INPUT_TOKENS=$(printf '%s\n' "$input" | jq -r '.context_window.total_input_tokens // 0')
+OUTPUT_TOKENS=$(printf '%s\n' "$input" | jq -r '.context_window.total_output_tokens // 0')
+
+# Validate numeric fields
+[[ "$COST" =~ ^[0-9]*\.?[0-9]+$ ]] || COST=0
+[[ "$PCT" =~ ^[0-9]+$ ]] || PCT=0
 
 # Paths
-PLAN_CACHE="/tmp/claude-plan-usage.json"
+PLAN_CACHE="$HOME/.claude/plan-usage-cache.json"
 FETCH_SCRIPT="$HOME/.claude/fetch-plan-usage.sh"
 LOG_FILE="$HOME/.claude/usage-log.jsonl"
 
@@ -32,87 +49,8 @@ WHITE='\033[97m'
 BLUE='\033[34m'
 RESET='\033[0m'
 
-# --- Helper functions ---
-
-color_by_pct() {
-    local pct=$1
-    if [ "${pct:-0}" -ge 80 ] 2>/dev/null; then echo "$RED"
-    elif [ "${pct:-0}" -ge 50 ] 2>/dev/null; then echo "$YELLOW"
-    else echo "$GREEN"; fi
-}
-
-make_bar() {
-    local pct=$1 width=$2
-    local filled=$((pct * width / 100))
-    [ "$filled" -gt "$width" ] && filled=$width
-    local empty=$((width - filled))
-    printf "%${filled}s" | sed 's/ /█/g'
-    printf "%${empty}s" | sed 's/ /░/g'
-}
-
-format_tokens() {
-    local n=$1
-    if [ "$n" -ge 1000000 ] 2>/dev/null; then
-        printf "%.1fM" "$(echo "scale=1; $n / 1000000" | bc)"
-    elif [ "$n" -ge 1000 ] 2>/dev/null; then
-        printf "%.1fK" "$(echo "scale=1; $n / 1000" | bc)"
-    else
-        printf "%d" "$n"
-    fi
-}
-
-format_time() {
-    local ms=$1
-    local total_sec=$((ms / 1000))
-    local hrs=$((total_sec / 3600))
-    local mins=$(((total_sec % 3600) / 60))
-    local secs=$((total_sec % 60))
-    if [ "$hrs" -gt 0 ]; then printf "%dh %dm" "$hrs" "$mins"
-    elif [ "$mins" -gt 0 ]; then printf "%dm %ds" "$mins" "$secs"
-    else printf "%ds" "$secs"; fi
-}
-
-format_cost() {
-    local cost=$1
-    local int_part=$(echo "$cost" | cut -d. -f1)
-    if [ "${int_part:-0}" -ge 1 ] 2>/dev/null; then printf '$%.2f' "$cost"
-    else printf '$%.4f' "$cost"; fi
-}
-
-# Parse ISO 8601 timestamp to epoch (cross-platform: GNU date + BSD date)
-iso_to_epoch() {
-    local ts=$1
-    # GNU date (Linux)
-    date -d "$ts" +%s 2>/dev/null && return
-    # BSD date (macOS) — strip Z or +HH:MM offset, parse without timezone
-    local clean=$(echo "$ts" | sed 's/Z$//' | sed 's/[+-][0-9][0-9]:[0-9][0-9]$//')
-    date -jf "%Y-%m-%dT%H:%M:%S" "$clean" +%s 2>/dev/null && return
-    return 1
-}
-
-# Format ISO timestamp to "Xh Ym" or "Xd Yh" remaining
-format_remaining() {
-    local reset_at=$1
-    if [ -z "$reset_at" ] || [ "$reset_at" = "null" ]; then
-        echo "?"
-        return
-    fi
-    local reset_epoch=$(iso_to_epoch "$reset_at")
-    local now_epoch=$(date +%s)
-    if [ -z "$reset_epoch" ]; then echo "?"; return; fi
-    local diff=$((reset_epoch - now_epoch))
-    if [ "$diff" -le 0 ]; then echo "soon"; return; fi
-    local days=$((diff / 86400))
-    local hrs=$(((diff % 86400) / 3600))
-    local mins=$(((diff % 3600) / 60))
-    if [ "$days" -gt 0 ]; then printf "%dd %dh" "$days" "$hrs"
-    elif [ "$hrs" -gt 0 ]; then printf "%dh %dm" "$hrs" "$mins"
-    else printf "%dm" "$mins"; fi
-}
-
 # --- Context bar ---
 CTX_COLOR=$(color_by_pct "$PCT")
-CTX_BAR=$(make_bar "$PCT" 15)
 
 COST_FMT=$(format_cost "$COST")
 IN_FMT=$(format_tokens "$INPUT_TOKENS")
@@ -132,7 +70,9 @@ if [ -f "$FETCH_SCRIPT" ]; then
     if [ ! -f "$PLAN_CACHE" ]; then
         NEED_REFRESH=true
     else
-        CACHE_AGE=$(( $(date +%s) - $(jq -r '.timestamp // 0' "$PLAN_CACHE" 2>/dev/null || echo 0) ))
+        cache_ts=$(jq -r '.timestamp // 0' "$PLAN_CACHE" 2>/dev/null || echo 0)
+        [[ "$cache_ts" =~ ^[0-9]+$ ]] || cache_ts=0
+        CACHE_AGE=$(( $(date +%s) - cache_ts ))
         [ "$CACHE_AGE" -gt 30 ] && NEED_REFRESH=true
     fi
     if $NEED_REFRESH; then
@@ -161,9 +101,12 @@ DAILY_TOTAL="0"
 MONTHLY_TOTAL="0"
 
 if [ -f "$LOG_FILE" ]; then
-    DAILY_TOTAL=$(jq -rs "[.[] | select(.date == \"$TODAY\") | .cost_usd] | add // 0" "$LOG_FILE")
-    MONTHLY_TOTAL=$(jq -rs "[.[] | select(.date | startswith(\"$MONTH\")) | .cost_usd] | add // 0" "$LOG_FILE")
+    DAILY_TOTAL=$(jq -rs --arg today "$TODAY" '[.[] | select(.date == $today) | .cost_usd] | add // 0' "$LOG_FILE")
+    MONTHLY_TOTAL=$(jq -rs --arg month "$MONTH" '[.[] | select(.date | startswith($month)) | .cost_usd] | add // 0' "$LOG_FILE")
 fi
+
+[[ "$DAILY_TOTAL" =~ ^[0-9]*\.?[0-9]+$ ]] || DAILY_TOTAL=0
+[[ "$MONTHLY_TOTAL" =~ ^[0-9]*\.?[0-9]+$ ]] || MONTHLY_TOTAL=0
 
 # Add current session
 DAILY_WITH=$(echo "$DAILY_TOTAL + $COST" | bc)
@@ -187,3 +130,5 @@ echo -e "5h   ${PLAN_5H_COLOR}[${PLAN_5H_BAR}]${RESET} ${BOLD}${PLAN_5H}%${RESET
 # Line 4: 7d weekly bar
 PLAN_7D_BAR=$(make_bar "$PLAN_7D" 20)
 echo -e "week ${PLAN_7D_COLOR}[${PLAN_7D_BAR}]${RESET} ${BOLD}${PLAN_7D}%${RESET}  ${DIM}reset ${PLAN_7D_RESET}${RESET}"
+
+fi

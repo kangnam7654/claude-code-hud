@@ -1,1 +1,4 @@
 *.json.tmp
+*.bak
+.DS_Store
+test/test_results/

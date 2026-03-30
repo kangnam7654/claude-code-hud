@@ -11,7 +11,7 @@ CLAUDE_DIR="$HOME/.claude"
 SETTINGS_FILE="$CLAUDE_DIR/settings.json"
 CRED_FILE="$CLAUDE_DIR/.credentials.json"
 LOG_FILE="$CLAUDE_DIR/usage-log.jsonl"
-PLAN_CACHE="/tmp/claude-plan-usage.json"
+PLAN_CACHE="$CLAUDE_DIR/plan-usage-cache.json"
 
 LINKS=(
     "statusline.sh"
@@ -32,6 +32,20 @@ info()  { echo -e "${GREEN}✓${RESET} $1"; }
 warn()  { echo -e "${YELLOW}⚠${RESET} $1"; }
 error() { echo -e "${RED}✗${RESET} $1"; }
 
+# POSIX-compatible readlink -f replacement
+resolve_path() {
+    local path="$1"
+    if command -v realpath &>/dev/null; then
+        realpath "$path"
+    else
+        (cd "$(dirname "$path")" 2>/dev/null && printf '%s/%s' "$(pwd -P)" "$(basename "$path")")
+    fi
+}
+
+# Cleanup trap for temp files
+_cleanup_files=()
+trap 'rm -f "${_cleanup_files[@]+"${_cleanup_files[@]}"}"' EXIT
+
 # --- Uninstall ---
 uninstall() {
     echo -e "${BOLD}${CYAN}Claude Code HUD${RESET} — Uninstall"
@@ -50,13 +64,25 @@ uninstall() {
         fi
     done
 
+    # Remove lib symlink
+    if [ -L "$CLAUDE_DIR/lib" ]; then
+        rm "$CLAUDE_DIR/lib"
+        info "Removed symlink: $CLAUDE_DIR/lib"
+    fi
+
     # Remove settings entries
     if [ -f "$SETTINGS_FILE" ]; then
+        if [ -L "$SETTINGS_FILE" ]; then
+            error "settings.json is a symlink — aborting for safety"
+            exit 1
+        fi
         local tmp
         tmp=$(mktemp)
+        _cleanup_files+=("$tmp")
         jq 'del(.statusLine) | del(.hooks.SessionEnd)
             | if .hooks == {} then del(.hooks) else . end' \
-            "$SETTINGS_FILE" > "$tmp" && mv "$tmp" "$SETTINGS_FILE"
+            "$SETTINGS_FILE" > "$tmp"
+        mv "$tmp" "$SETTINGS_FILE"
         info "Removed HUD entries from settings.json"
     fi
 
@@ -126,6 +152,19 @@ mkdir -p "$CLAUDE_DIR"
 # 4. Symlinks
 echo
 echo -e "${BOLD}Creating symlinks...${RESET}"
+
+# Symlink lib directory
+LIB_SRC="$SCRIPT_DIR/lib"
+LIB_DEST="$CLAUDE_DIR/lib"
+if [ -d "$LIB_SRC" ]; then
+    if [ -L "$LIB_DEST" ] || [ ! -e "$LIB_DEST" ]; then
+        ln -sfn "$LIB_SRC" "$LIB_DEST"
+        info "lib/ → $LIB_DEST"
+    else
+        warn "lib/ exists at $LIB_DEST but is not a symlink — skipping"
+    fi
+fi
+
 for file in "${LINKS[@]}"; do
     src="$SCRIPT_DIR/$file"
     dest="$CLAUDE_DIR/$file"
@@ -136,8 +175,8 @@ for file in "${LINKS[@]}"; do
     fi
 
     if [ -L "$dest" ]; then
-        existing=$(readlink -f "$dest")
-        expected=$(readlink -f "$src")
+        existing=$(resolve_path "$dest")
+        expected=$(resolve_path "$src")
         if [ "$existing" = "$expected" ]; then
             info "$file — already linked"
             continue
@@ -189,14 +228,22 @@ if [ ! -f "$SETTINGS_FILE" ]; then
     echo "$HUD_CONFIG" | jq '.' > "$SETTINGS_FILE"
     info "Created $SETTINGS_FILE"
 else
+    # Safety: refuse to modify a symlinked settings file
+    if [ -L "$SETTINGS_FILE" ]; then
+        error "settings.json is a symlink — aborting for safety"
+        exit 1
+    fi
+
     updated=false
 
     # Check statusLine
     has_status=$(jq 'has("statusLine")' "$SETTINGS_FILE")
     if [ "$has_status" = "false" ]; then
         tmp=$(mktemp)
+        _cleanup_files+=("$tmp")
         jq --argjson sl "$(echo "$HUD_CONFIG" | jq '.statusLine')" \
-            '.statusLine = $sl' "$SETTINGS_FILE" > "$tmp" && mv "$tmp" "$SETTINGS_FILE"
+            '.statusLine = $sl' "$SETTINGS_FILE" > "$tmp"
+        mv "$tmp" "$SETTINGS_FILE"
         info "Added statusLine config"
         updated=true
     else
@@ -207,8 +254,10 @@ else
     has_hook=$(jq '.hooks.SessionEnd // null | type' "$SETTINGS_FILE" 2>/dev/null)
     if [ "$has_hook" = '"null"' ] || [ "$has_hook" = "null" ]; then
         tmp=$(mktemp)
+        _cleanup_files+=("$tmp")
         jq --argjson se "$(echo "$HUD_CONFIG" | jq '.hooks.SessionEnd')" \
-            '.hooks.SessionEnd = $se' "$SETTINGS_FILE" > "$tmp" && mv "$tmp" "$SETTINGS_FILE"
+            '.hooks.SessionEnd = $se' "$SETTINGS_FILE" > "$tmp"
+        mv "$tmp" "$SETTINGS_FILE"
         info "Added SessionEnd hook"
         updated=true
     else
