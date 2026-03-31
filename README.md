@@ -24,19 +24,27 @@ Bar colors: green (<50%) → yellow (50-79%) → red (80%+)
 
 ## Install
 
+### macOS / Linux
+
 ```bash
 git clone https://github.com/kangnam7654/claude-code-hud.git
 cd claude-code-hud
 ./install.sh
 ```
 
-This automatically creates symlinks and configures `~/.claude/settings.json`. Restart Claude Code after install.
+To uninstall: `./install.sh --uninstall`
 
-To uninstall:
+### Windows (PowerShell 7+)
 
-```bash
-./install.sh --uninstall
+```powershell
+git clone https://github.com/kangnam7654/claude-code-hud.git
+cd claude-code-hud\win
+.\install.ps1
 ```
+
+To uninstall: `.\install.ps1 -Uninstall`
+
+Both installers configure `~/.claude/settings.json` automatically. Restart Claude Code after install.
 
 ## How It Works
 
@@ -71,4 +79,5 @@ log-session.sh         # SessionEnd hook - logs session metrics to JSONL
 ## Requirements
 
 - Claude Code (Max plan)
-- `jq`, `curl`, `bc`
+- macOS/Linux: `jq`, `curl`, `bc`
+- Windows: PowerShell 7+ (`winget install Microsoft.PowerShell`)
