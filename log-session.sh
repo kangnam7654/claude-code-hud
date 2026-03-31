@@ -1,15 +1,22 @@
 #!/bin/bash
 # Claude Code SessionEnd Hook - Logs session metrics to usage-log.jsonl
-# Receives session JSON via stdin
+# Reads session data from snapshot file written by statusline.sh
+# (SessionEnd hook stdin only contains minimal metadata, not cost/token data)
 
 set -euo pipefail
 
 LOG_FILE="$HOME/.claude/usage-log.jsonl"
+SNAPSHOT="$HOME/.claude/.current-session.json"
 mkdir -p "$(dirname "$LOG_FILE")"
 
-input=$(cat)
+# Read session data from statusline snapshot
+if [ ! -f "$SNAPSHOT" ]; then
+    exit 0
+fi
 
-# Skip if empty input
+input=$(<"$SNAPSHOT")
+
+# Skip if empty
 if [ -z "$input" ]; then
     exit 0
 fi
@@ -30,3 +37,6 @@ line=$(printf '%s\n' "$input" | jq -c '{
 if [ -n "$line" ]; then
     echo "$line" >> "$LOG_FILE"
 fi
+
+# Clean up snapshot
+rm -f "$SNAPSHOT"

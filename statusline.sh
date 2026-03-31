@@ -131,4 +131,7 @@ echo -e "5h   ${PLAN_5H_COLOR}[${PLAN_5H_BAR}]${RESET} ${BOLD}${PLAN_5H}%${RESET
 PLAN_7D_BAR=$(make_bar "$PLAN_7D" 20)
 echo -e "week ${PLAN_7D_COLOR}[${PLAN_7D_BAR}]${RESET} ${BOLD}${PLAN_7D}%${RESET}  ${DIM}reset ${PLAN_7D_RESET}${RESET}"
 
+# Save current session snapshot for SessionEnd hook to read
+printf '%s\n' "$input" > "$HOME/.claude/.current-session.json" 2>/dev/null
+
 fi
