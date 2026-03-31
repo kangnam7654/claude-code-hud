@@ -7,8 +7,8 @@ Claude Codeのステータスラインに使用量情報をリアルタイム表
 ## プレビュー
 
 ```
-Opus 4.6 | 13m 28s (api:8m 41s) | $2.07 | d:$2.07 m:$2.07 | in:88.9K out:26.7K
-ctx  [█████░░░░░░░░░░░░░░░] 29%
+Opus 4.6 (1M context) | 5m 0s (api:3m 0s) | $1.23 | d:$4.56 m:$78.90 | in:45.2K out:12.8K
+ctx  [███████░░░░░░░░░░░░░] 35%
 5h   [░░░░░░░░░░░░░░░░░░░░]  4%  reset 3h 30m
 week [████░░░░░░░░░░░░░░░░] 22%  reset 4d 19h
 ```
@@ -20,9 +20,13 @@ week [████░░░░░░░░░░░░░░░░] 22%  reset 4
 | 3 | 5時間プラン上限使用率 + リセットタイマー |
 | 4 | 週間プラン上限使用率 + リセットタイマー |
 
-バーの色: 緑(<50%) → 黄(50-79%) → 赤(80%+)
+- バーの色: 緑(<50%) → 黄(50-79%) → 赤(80%+)
+- セッションコスト: 現在のセッションのみ表示（黄色）
+- `d:` / `m:`: 過去の完了セッションの累計コスト（日次 / 月次）
 
 ## インストール
+
+### macOS / Linux
 
 ```bash
 git clone https://github.com/kangnam7654/claude-code-hud.git
@@ -30,45 +34,68 @@ cd claude-code-hud
 ./install.sh
 ```
 
-シンボリックリンクの作成と `~/.claude/settings.json` の設定を自動で行います。インストール後、Claude Codeを再起動してください。
+アンインストール: `./install.sh --uninstall`
 
-アンインストール:
+### Windows (PowerShell 7+)
 
-```bash
-./install.sh --uninstall
+```powershell
+git clone https://github.com/kangnam7654/claude-code-hud.git
+cd claude-code-hud\win
+.\install.ps1
 ```
+
+アンインストール: `.\install.ps1 -Uninstall`
+
+両インストーラーは `~/.claude/settings.json` を自動設定します。インストール後、Claude Codeの再起動が必要です。
 
 ## 仕組み
 
 ### ステータスライン (`statusline.sh`)
 
-Claude Codeがstdinで送信するセッションJSONを読み取り、以下を表示:
+Claude Codeがstdinで送信するセッションJSONを読み取り、ダッシュボードをレンダリング:
 - セッション指標（コスト、時間、トークン）
 - コンテキストウィンドウ使用率バー
 - プラン使用率バー + リセットタイマー（キャッシュされたAPIデータ）
-- 日次/月次累計コスト（セッションログベース）
+- 過去セッションの日次/月次累計コスト（`usage-log.jsonl` ベース）
+- 更新ごとにセッションスナップショットを保存（SessionEndフック用）
 
 ### プラン使用量 (`fetch-plan-usage.sh`)
 
-- `~/.claude/.credentials.json` のOAuthトークンで `api.anthropic.com/api/oauth/usage` を呼び出し
-- 30秒キャッシュ (`/tmp/claude-plan-usage.json`) でステータスラインの速度に影響なし
+- `api.anthropic.com/api/oauth/usage` OAuth API呼び出し
+- トークンソース: `~/.claude/.credentials.json` またはmacOS Keychain
+- 30秒キャッシュ (`~/.claude/plan-usage-cache.json`) でステータスラインの速度に影響なし
 - キャッシュが古くなるとバックグラウンドで自動更新
 
 ### セッションログ (`log-session.sh`)
 
-- SessionEndフックでセッション終了時にコスト/トークンを `~/.claude/usage-log.jsonl` に記録
-- ステータスラインで現在のセッションコスト + 過去のセッションコストを合算表示
+- SessionEndフックで `statusline.sh` が保存したセッションスナップショットを読み取りログに記録
+- コスト/トークン/時間指標を `~/.claude/usage-log.jsonl` にJSONLで保存
+- 全プロジェクトの使用量が一つのログファイルにグローバルに蓄積
 
 ## ファイル構成
 
 ```
-install.sh             # インストール/アンインストールスクリプト
-statusline.sh          # HUDメインスクリプト（ステータスラインで実行）
-fetch-plan-usage.sh    # Anthropic OAuth APIプラン使用量取得 + キャッシュ
-log-session.sh         # SessionEndフック - セッション指標をJSONLに記録
+statusline.sh          # HUDメインスクリプト（stdin JSON解析、出力レンダリング）
+fetch-plan-usage.sh    # OAuth APIプラン使用量取得 + バックグラウンドキャッシュ
+log-session.sh         # SessionEndフック - セッション終了時に指標をJSONLに記録
+install.sh             # インストール/アンインストールスクリプト（macOS/Linux）
+lib/hud-utils.sh       # 共有ユーティリティ関数（statusline.shがsource）
+win/                   # Windows PowerShellポート（statusline, fetch, log, install）
+test/                  # BATSテストスイート（35テスト）
+```
+
+## テスト
+
+```bash
+./test/bats/bin/bats test/*.bats
 ```
 
 ## 要件
 
 - Claude Code（Maxプラン）
-- `jq`, `curl`, `bc`
+- macOS/Linux: `jq`, `curl`, `bc`
+- Windows: PowerShell 7+（`winget install Microsoft.PowerShell`）
+
+## ライセンス
+
+[MIT](../LICENSE)
