@@ -280,7 +280,8 @@ echo
 PREVIEW_INPUT='{
     "model": {"display_name": "Opus 4.6", "id": "claude-opus-4-6"},
     "cost": {"total_cost_usd": 1.2345, "total_duration_ms": 300000, "total_api_duration_ms": 180000},
-    "context_window": {"used_percentage": 35.2, "total_input_tokens": 45200, "total_output_tokens": 12800}
+    "context_window": {"used_percentage": 35.2, "total_input_tokens": 45200, "total_output_tokens": 12800},
+    "rate_limits": {"five_hour": {"used_percentage": 21, "resets_at": 1775049600}, "seven_day": {"used_percentage": 62, "resets_at": 1775390400}}
 }'
 
 echo "$PREVIEW_INPUT" | "$CLAUDE_DIR/statusline.sh" 2>/dev/null || true

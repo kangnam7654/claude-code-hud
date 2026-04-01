@@ -36,7 +36,6 @@ OUTPUT_TOKENS=$(printf '%s\n' "$input" | jq -r '.context_window.total_output_tok
 
 # Paths
 PLAN_CACHE="$HOME/.claude/plan-usage-cache.json"
-FETCH_SCRIPT="$HOME/.claude/fetch-plan-usage.sh"
 LOG_FILE="$HOME/.claude/usage-log.jsonl"
 
 # Colors
@@ -60,38 +59,33 @@ OUT_FMT=$(format_tokens "$OUTPUT_TOKENS")
 WALL_TIME=$(format_time "$DURATION_MS")
 API_TIME=$(format_time "$API_DURATION_MS")
 
-# --- Plan usage (background refresh) ---
-PLAN_5H="?"
-PLAN_5H_RESET=""
-PLAN_7D="?"
-PLAN_7D_RESET=""
+# --- Plan usage (from stdin JSON, provided by Claude Code) ---
+PLAN_5H=$(printf '%s\n' "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty' | cut -d. -f1)
+PLAN_5H_RESET_AT=$(printf '%s\n' "$input" | jq -r '.rate_limits.five_hour.resets_at // empty')
+PLAN_7D=$(printf '%s\n' "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty' | cut -d. -f1)
+PLAN_7D_RESET_AT=$(printf '%s\n' "$input" | jq -r '.rate_limits.seven_day.resets_at // empty')
 
-# Refresh cache in background if stale (>30s) or missing
-if [ -f "$FETCH_SCRIPT" ]; then
-    NEED_REFRESH=false
-    if [ ! -f "$PLAN_CACHE" ]; then
-        NEED_REFRESH=true
-    else
-        cache_ts=$(jq -r '.timestamp // 0' "$PLAN_CACHE" 2>/dev/null || echo 0)
-        [[ "$cache_ts" =~ ^[0-9]+$ ]] || cache_ts=0
-        CACHE_AGE=$(( $(date +%s) - cache_ts ))
-        [ "$CACHE_AGE" -gt 30 ] && NEED_REFRESH=true
-    fi
-    if $NEED_REFRESH; then
-        "$FETCH_SCRIPT" &>/dev/null &
-    fi
-fi
-
-# Read cached plan usage
-if [ -f "$PLAN_CACHE" ] && [ -z "$(jq -r '.error // empty' "$PLAN_CACHE" 2>/dev/null)" ]; then
+# Fall back to cache if stdin lacks rate_limits (first call before any API response)
+if [ -z "$PLAN_5H" ] && [ -f "$PLAN_CACHE" ] && [ -z "$(jq -r '.error // empty' "$PLAN_CACHE" 2>/dev/null)" ]; then
     PLAN_5H=$(jq -r '.five_hour_pct // 0' "$PLAN_CACHE")
     PLAN_5H_RESET_AT=$(jq -r '.five_hour_resets_at // empty' "$PLAN_CACHE")
     PLAN_7D=$(jq -r '.seven_day_pct // 0' "$PLAN_CACHE")
     PLAN_7D_RESET_AT=$(jq -r '.seven_day_resets_at // empty' "$PLAN_CACHE")
-
-    PLAN_5H_RESET=$(format_remaining "$PLAN_5H_RESET_AT")
-    PLAN_7D_RESET=$(format_remaining "$PLAN_7D_RESET_AT")
 fi
+
+[[ "$PLAN_5H" =~ ^[0-9]+$ ]] || PLAN_5H=0
+[[ "$PLAN_7D" =~ ^[0-9]+$ ]] || PLAN_7D=0
+
+# Convert epoch seconds to ISO for format_remaining if needed
+if [[ "$PLAN_5H_RESET_AT" =~ ^[0-9]+$ ]]; then
+    PLAN_5H_RESET_AT=$(date -u -r "$PLAN_5H_RESET_AT" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")
+fi
+if [[ "$PLAN_7D_RESET_AT" =~ ^[0-9]+$ ]]; then
+    PLAN_7D_RESET_AT=$(date -u -r "$PLAN_7D_RESET_AT" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")
+fi
+
+PLAN_5H_RESET=$(format_remaining "$PLAN_5H_RESET_AT")
+PLAN_7D_RESET=$(format_remaining "$PLAN_7D_RESET_AT")
 
 PLAN_5H_COLOR=$(color_by_pct "$PLAN_5H")
 PLAN_7D_COLOR=$(color_by_pct "$PLAN_7D")
