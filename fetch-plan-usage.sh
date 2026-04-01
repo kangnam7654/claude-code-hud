@@ -37,8 +37,11 @@ if ! RESPONSE=$(curl -sS --fail --max-time 10 \
     -H "anthropic-beta: oauth-2025-04-20" \
     -H "Content-Type: application/json" \
     "https://api.anthropic.com/api/oauth/usage" 2>&1); then
-    printf '%s' "$RESPONSE" | head -c 200 | jq -Rsc --arg ts "$(date +%s)" \
-        '{error: ("curl failed: " + .), timestamp: ($ts | tonumber)}' > "$CACHE_FILE"
+    # API failed — keep old cache data but bump timestamp to avoid retrying every call
+    if [ -f "$CACHE_FILE" ] && jq -e '.five_hour_pct' "$CACHE_FILE" >/dev/null 2>&1; then
+        jq --arg ts "$(date +%s)" '.timestamp = ($ts | tonumber)' "$CACHE_FILE" > "${CACHE_FILE}.tmp" \
+            && mv "${CACHE_FILE}.tmp" "$CACHE_FILE"
+    fi
     exit 1
 fi
 
@@ -61,8 +64,11 @@ PARSED=$(printf '%s\n' "$RESPONSE" | jq -c \
 if [ -n "$PARSED" ] && printf '%s\n' "$PARSED" | jq -e '.timestamp' >/dev/null 2>&1; then
     printf '%s\n' "$PARSED" > "${CACHE_FILE}.tmp" && mv "${CACHE_FILE}.tmp" "$CACHE_FILE"
 else
-    printf '%s' "$RESPONSE" | head -c 500 | jq -Rsc --arg ts "$(date +%s)" \
-        '{error: "parse failed", timestamp: ($ts | tonumber), raw: .}' > "$CACHE_FILE"
+    # Parse failed — keep old cache data but bump timestamp
+    if [ -f "$CACHE_FILE" ] && jq -e '.five_hour_pct' "$CACHE_FILE" >/dev/null 2>&1; then
+        jq --arg ts "$(date +%s)" '.timestamp = ($ts | tonumber)' "$CACHE_FILE" > "${CACHE_FILE}.tmp" \
+            && mv "${CACHE_FILE}.tmp" "$CACHE_FILE"
+    fi
     exit 1
 fi
 
