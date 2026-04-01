@@ -11,20 +11,20 @@ CACHE_FILE="$HOME/.claude/plan-usage-cache.json"
 CRED_FILE="$HOME/.claude/.credentials.json"
 
 # Read OAuth access token
-# Try credentials file first (Linux), then macOS Keychain
-CRED_JSON=""
+# Try credentials file first, then macOS Keychain
+# On macOS, claudeAiOauth may be in Keychain while file only has mcpOAuth
+ACCESS_TOKEN=""
+
 if [ -f "$CRED_FILE" ]; then
-    CRED_JSON=$(<"$CRED_FILE")
-elif command -v security &>/dev/null; then
-    CRED_JSON=$(security find-generic-password -s "Claude Code-credentials" -a "$USER" -w 2>/dev/null)
+    ACCESS_TOKEN=$(jq -r '.claudeAiOauth.accessToken // .accessToken // empty' "$CRED_FILE" 2>/dev/null)
 fi
 
-if [ -z "$CRED_JSON" ]; then
-    echo '{"error":"no credentials"}' > "$CACHE_FILE"
-    exit 1
+if [ -z "$ACCESS_TOKEN" ] && command -v security &>/dev/null; then
+    KEYCHAIN_JSON=$(security find-generic-password -s "Claude Code-credentials" -a "$USER" -w 2>/dev/null) || true
+    if [ -n "$KEYCHAIN_JSON" ]; then
+        ACCESS_TOKEN=$(printf '%s\n' "$KEYCHAIN_JSON" | jq -r '.claudeAiOauth.accessToken // .accessToken // empty')
+    fi
 fi
-
-ACCESS_TOKEN=$(printf '%s\n' "$CRED_JSON" | jq -r '.claudeAiOauth.accessToken // .accessToken // empty')
 if [ -z "$ACCESS_TOKEN" ]; then
     echo '{"error":"no token"}' > "$CACHE_FILE"
     exit 1
