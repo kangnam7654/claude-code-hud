@@ -31,14 +31,14 @@ if [ -z "$ACCESS_TOKEN" ]; then
 fi
 
 # Call Anthropic OAuth usage API
-RESPONSE=$(curl -sS --fail --max-time 10 \
+# Use if-guard so set -e doesn't kill the script before error handling
+if ! RESPONSE=$(curl -sS --fail --max-time 10 \
     -H "Authorization: Bearer $ACCESS_TOKEN" \
     -H "anthropic-beta: oauth-2025-04-20" \
     -H "Content-Type: application/json" \
-    "https://api.anthropic.com/api/oauth/usage" 2>&1)
-curl_exit=$?
-if [ $curl_exit -ne 0 ]; then
-    echo "{\"error\":\"curl failed (exit $curl_exit): $(printf '%s' "$RESPONSE" | head -c 200 | jq -Rs .)\",\"timestamp\":$(date +%s)}" > "$CACHE_FILE"
+    "https://api.anthropic.com/api/oauth/usage" 2>&1); then
+    printf '%s' "$RESPONSE" | head -c 200 | jq -Rsc --arg ts "$(date +%s)" \
+        '{error: ("curl failed: " + .), timestamp: ($ts | tonumber)}' > "$CACHE_FILE"
     exit 1
 fi
 
@@ -61,7 +61,8 @@ PARSED=$(printf '%s\n' "$RESPONSE" | jq -c \
 if [ -n "$PARSED" ] && printf '%s\n' "$PARSED" | jq -e '.timestamp' >/dev/null 2>&1; then
     printf '%s\n' "$PARSED" > "${CACHE_FILE}.tmp" && mv "${CACHE_FILE}.tmp" "$CACHE_FILE"
 else
-    echo "{\"error\":\"parse failed\",\"timestamp\":$(date +%s),\"raw\":$(printf '%s' "$RESPONSE" | head -c 500 | jq -Rs .)}" > "$CACHE_FILE"
+    printf '%s' "$RESPONSE" | head -c 500 | jq -Rsc --arg ts "$(date +%s)" \
+        '{error: "parse failed", timestamp: ($ts | tonumber), raw: .}' > "$CACHE_FILE"
     exit 1
 fi
 
