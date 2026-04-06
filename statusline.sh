@@ -36,6 +36,7 @@ OUTPUT_TOKENS=$(printf '%s\n' "$input" | jq -r '.context_window.total_output_tok
 
 # Paths
 PLAN_CACHE="$HOME/.claude/plan-usage-cache.json"
+FETCH_SCRIPT="$HOME/.claude/fetch-plan-usage.sh"
 LOG_FILE="$HOME/.claude/usage-log.jsonl"
 
 # Colors
@@ -65,12 +66,40 @@ PLAN_5H_RESET_AT=$(printf '%s\n' "$input" | jq -r '.rate_limits.five_hour.resets
 PLAN_7D=$(printf '%s\n' "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty' | cut -d. -f1)
 PLAN_7D_RESET_AT=$(printf '%s\n' "$input" | jq -r '.rate_limits.seven_day.resets_at // empty')
 
-# Fall back to cache if stdin lacks rate_limits (first call before any API response)
-if [ -z "$PLAN_5H" ] && [ -f "$PLAN_CACHE" ] && [ -z "$(jq -r '.error // empty' "$PLAN_CACHE" 2>/dev/null)" ]; then
-    PLAN_5H=$(jq -r '.five_hour_pct // 0' "$PLAN_CACHE")
-    PLAN_5H_RESET_AT=$(jq -r '.five_hour_resets_at // empty' "$PLAN_CACHE")
-    PLAN_7D=$(jq -r '.seven_day_pct // 0' "$PLAN_CACHE")
-    PLAN_7D_RESET_AT=$(jq -r '.seven_day_resets_at // empty' "$PLAN_CACHE")
+# Fall back to cache if stdin lacks rate_limits
+if [ -z "$PLAN_5H" ]; then
+    # Refresh cache in background if stale (>120s) or missing
+    # Respect backoff_until from rate-limit responses
+    if [ -f "$FETCH_SCRIPT" ]; then
+        NEED_REFRESH=false
+        NOW_EPOCH=$(date +%s)
+        if [ ! -f "$PLAN_CACHE" ]; then
+            NEED_REFRESH=true
+        else
+            # Skip refresh if in backoff period (rate-limited)
+            backoff_until=$(jq -r '.backoff_until // 0' "$PLAN_CACHE" 2>/dev/null || echo 0)
+            [[ "$backoff_until" =~ ^[0-9]+$ ]] || backoff_until=0
+            if [ "$NOW_EPOCH" -lt "$backoff_until" ]; then
+                NEED_REFRESH=false
+            else
+                cache_ts=$(jq -r '.timestamp // 0' "$PLAN_CACHE" 2>/dev/null || echo 0)
+                [[ "$cache_ts" =~ ^[0-9]+$ ]] || cache_ts=0
+                CACHE_AGE=$(( NOW_EPOCH - cache_ts ))
+                [ "$CACHE_AGE" -gt 120 ] && NEED_REFRESH=true
+            fi
+        fi
+        if $NEED_REFRESH; then
+            "$FETCH_SCRIPT" &>/dev/null &
+        fi
+    fi
+
+    # Read cached plan usage
+    if [ -f "$PLAN_CACHE" ] && [ -z "$(jq -r '.error // empty' "$PLAN_CACHE" 2>/dev/null)" ]; then
+        PLAN_5H=$(jq -r '.five_hour_pct // 0' "$PLAN_CACHE")
+        PLAN_5H_RESET_AT=$(jq -r '.five_hour_resets_at // empty' "$PLAN_CACHE")
+        PLAN_7D=$(jq -r '.seven_day_pct // 0' "$PLAN_CACHE")
+        PLAN_7D_RESET_AT=$(jq -r '.seven_day_resets_at // empty' "$PLAN_CACHE")
+    fi
 fi
 
 [[ "$PLAN_5H" =~ ^[0-9]+$ ]] || PLAN_5H=0

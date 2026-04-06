@@ -65,13 +65,21 @@ format_cost() {
 iso_to_epoch() {
     local ts=$1
     if [ -z "$ts" ]; then return 1; fi
-    # GNU date (Linux)
+    # GNU date (Linux) — handles ISO 8601 natively
     date -d "$ts" +%s 2>/dev/null && return
-    # BSD date (macOS) — strip Z or +HH:MM offset, parse without timezone
+    # BSD date (macOS) — must handle timezone offset manually
+    local tz_offset_sec=0
+    if [[ "$ts" =~ ([+-])([0-9]{2}):([0-9]{2})$ ]]; then
+        local sign="${BASH_REMATCH[1]}" tz_h="${BASH_REMATCH[2]}" tz_m="${BASH_REMATCH[3]}"
+        tz_offset_sec=$(( (10#$tz_h * 3600) + (10#$tz_m * 60) ))
+        [ "$sign" = "-" ] && tz_offset_sec=$((-tz_offset_sec))
+    fi
+    # Strip fractional seconds and timezone suffix, parse as UTC
     local clean
-    clean=$(echo "$ts" | sed 's/Z$//' | sed 's/[+-][0-9][0-9]:[0-9][0-9]$//')
-    date -jf "%Y-%m-%dT%H:%M:%S" "$clean" +%s 2>/dev/null && return
-    return 1
+    clean=$(echo "$ts" | sed 's/\.[0-9]*//' | sed 's/Z$//' | sed 's/[+-][0-9][0-9]:[0-9][0-9]$//')
+    local epoch
+    epoch=$(date -juf "%Y-%m-%dT%H:%M:%S" "$clean" +%s 2>/dev/null) || return 1
+    echo $((epoch - tz_offset_sec))
 }
 
 # Format ISO timestamp to "Xh Ym" or "Xd Yh" remaining

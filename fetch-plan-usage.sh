@@ -31,32 +31,58 @@ if [ -z "$ACCESS_TOKEN" ]; then
 fi
 
 # Call Anthropic OAuth usage API
-# Use if-guard so set -e doesn't kill the script before error handling
-if ! RESPONSE=$(curl -sS --fail --max-time 10 \
+# Use -D to capture headers (for retry-after on 429)
+HEADER_FILE=$(mktemp)
+set +e
+RESPONSE=$(curl -sS --max-time 10 -w '\n%{http_code}' \
+    -D "$HEADER_FILE" \
     -H "Authorization: Bearer $ACCESS_TOKEN" \
     -H "anthropic-beta: oauth-2025-04-20" \
     -H "Content-Type: application/json" \
-    "https://api.anthropic.com/api/oauth/usage" 2>&1); then
-    # API failed — keep old cache data but bump timestamp to avoid retrying every call
-    if [ -f "$CACHE_FILE" ] && jq -e '.five_hour_pct' "$CACHE_FILE" >/dev/null 2>&1; then
-        jq --arg ts "$(date +%s)" '.timestamp = ($ts | tonumber)' "$CACHE_FILE" > "${CACHE_FILE}.tmp" \
-            && mv "${CACHE_FILE}.tmp" "$CACHE_FILE"
+    "https://api.anthropic.com/api/oauth/usage" 2>&1)
+curl_exit=$?
+set -e
+
+HTTP_CODE=$(printf '%s' "$RESPONSE" | tail -1)
+RESPONSE=$(printf '%s' "$RESPONSE" | sed '$d')
+
+if [ $curl_exit -ne 0 ] || [ "${HTTP_CODE:-0}" -ge 400 ] 2>/dev/null; then
+    # On 429: record retry-after so statusline skips refresh until then
+    if [ "$HTTP_CODE" = "429" ]; then
+        RETRY_AFTER=$(grep -i '^retry-after:' "$HEADER_FILE" | tr -d '\r' | awk '{print $2}')
+        RETRY_AFTER=${RETRY_AFTER:-60}
+        BACKOFF_UNTIL=$(( $(date +%s) + RETRY_AFTER ))
+        # Preserve existing usage data, just add backoff marker
+        if [ -f "$CACHE_FILE" ] && ! jq -e '.error' "$CACHE_FILE" >/dev/null 2>&1; then
+            jq -c --arg bu "$BACKOFF_UNTIL" '. + {backoff_until: ($bu | tonumber)}' "$CACHE_FILE" \
+                > "${CACHE_FILE}.tmp" && mv "${CACHE_FILE}.tmp" "$CACHE_FILE"
+        else
+            echo "{\"error\":\"rate limited\",\"timestamp\":$(date +%s),\"backoff_until\":$BACKOFF_UNTIL}" > "$CACHE_FILE"
+        fi
+    else
+        # Other errors: keep old cache data but bump timestamp to avoid retrying every call
+        if [ -f "$CACHE_FILE" ] && jq -e '.five_hour_pct' "$CACHE_FILE" >/dev/null 2>&1; then
+            jq --arg ts "$(date +%s)" '.timestamp = ($ts | tonumber)' "$CACHE_FILE" > "${CACHE_FILE}.tmp" \
+                && mv "${CACHE_FILE}.tmp" "$CACHE_FILE"
+        fi
     fi
+    rm -f "$HEADER_FILE"
     exit 1
 fi
+rm -f "$HEADER_FILE"
 
 # Parse and write cache with timestamp
 PARSED=$(printf '%s\n' "$RESPONSE" | jq -c \
     --arg ts "$(date +%s)" \
     '{
         timestamp: ($ts | tonumber),
-        five_hour_pct: ((.five_hour.utilization // 0) | floor),
+        five_hour_pct: ((.five_hour.utilization // 0) | round),
         five_hour_resets_at: (.five_hour.resets_at // null),
-        seven_day_pct: ((.seven_day.utilization // 0) | floor),
+        seven_day_pct: ((.seven_day.utilization // 0) | round),
         seven_day_resets_at: (.seven_day.resets_at // null),
-        sonnet_weekly_pct: ((.seven_day_sonnet.utilization // 0) | floor),
+        sonnet_weekly_pct: ((.seven_day_sonnet.utilization // 0) | round),
         sonnet_weekly_resets_at: (.seven_day_sonnet.resets_at // null),
-        opus_weekly_pct: ((.seven_day_opus.utilization // 0) | floor),
+        opus_weekly_pct: ((.seven_day_opus.utilization // 0) | round),
         opus_weekly_resets_at: (.seven_day_opus.resets_at // null)
     }' 2>/dev/null)
 
